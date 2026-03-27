@@ -219,54 +219,12 @@
         handleReset();
       };
 
-      // --- 교환 실행 로직 ---
-      const executeSwap = async (slot1, slot2) => {
-        const newTeachers = [...teachers];
-        const t1Index = newTeachers.findIndex(t => t.id === slot1.teacherId);
-        const t2Index = newTeachers.findIndex(t => t.id === slot2.teacherId);
-        
-        if (t1Index === -1 || t2Index === -1) return;
-
-        const t1 = { ...newTeachers[t1Index], schedule: { ...newTeachers[t1Index].schedule } };
-        const t2 = { ...newTeachers[t2Index], schedule: { ...newTeachers[t2Index].schedule } };
-
-        const key1 = `${slot1.day}_${slot1.period}`;
-        const key2 = `${slot2.day}_${slot2.period}`;
-
-        const s1 = t1.schedule[key1];
-        const s2 = t2.schedule[key2];
-
-        t1.schedule[key2] = s2;
-        delete t1.schedule[key1];
-
-        t2.schedule[key1] = s1;
-        delete t2.schedule[key2];
-
-        newTeachers[t1Index] = t1;
-        newTeachers[t2Index] = t2;
-
-        setTeachers(newTeachers);
-        handleReset();
-        showMessage("시간표가 성공적으로 교체되었습니다!", "success");
-
-        if (user && db) {
-          try {
-            const docRef = doc(db, 'timetable', 'shared_data');
-            await setDoc(docRef, { teachers: newTeachers, lastUpdated: new Date().toISOString() }, { merge: true });
-          } catch (error) {
-            console.error(error);
-            showMessage("클라우드 저장 중 오류가 발생했습니다.", "error");
-          }
-        }
-      };
-
       const handleCellClick = (teacherId, day, period, slotData) => {
         const isCandidateClick = swapCandidates.find(c => c.teacherId === teacherId && c.day === day && c.period === period);
         
         if (selectedSlot && isCandidateClick) {
-            if(window.confirm(`정말로 시간표를 교체하시겠습니까?\n(${day}요일 ${period}교시 <-> ${selectedSlot.day}요일 ${selectedSlot.period}교시)`)){
-                executeSwap(selectedSlot, isCandidateClick);
-            }
+            // ✅ 실제 데이터 교환(Swap) 로직 제거. 단순 참고용 안내 메시지만 출력하도록 변경
+            showMessage(`해당 시간표(${day}요일 ${period}교시)와 교환이 가능합니다! 선생님과 직접 협의해 주세요.`, "success");
             return;
         }
 
@@ -912,7 +870,7 @@
                                 }}
                                 className={`border border-slate-300 p-0.5 align-middle transition-all duration-200 ${cellBg}`}
                                 style={pIdx === d.periods.length - 1 ? thickBorderRight : {}}
-                                title={isSwap ? '클릭하여 교체하기' : isSelected ? '클릭하여 선택 취소' : slotData?.isMovingClass ? '묶음 이동수업(색칠됨)은 교체 불가' : ''}
+                                title={isSwap ? '교환 가능한 수업입니다' : isSelected ? '클릭하여 선택 취소' : slotData?.isMovingClass ? '묶음 이동수업(색칠됨)은 교체 불가' : ''}
                               >
                                 <div className={`flex flex-col items-center justify-center h-full min-h-[40px] text-[11px] leading-tight ${textColor}`}>
                                   {slotData ? (
