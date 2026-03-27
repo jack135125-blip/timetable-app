@@ -109,6 +109,7 @@
       const [selectedSlot, setSelectedSlot] = useState(null);
       const [swapCandidates, setSwapCandidates] = useState([]);
       const [isFiltered, setIsFiltered] = useState(false);
+      const [hoveredCandidate, setHoveredCandidate] = useState(null); // ✅ 마우스 오버 상태 추가
       
       const [appTitle, setAppTitle] = useState("전체 교사 시간표");
       const [isAdmin, setIsAdmin] = useState(false);
@@ -291,6 +292,7 @@
         const selSubject = slotData.subject; 
         const selTeacher = teachers.find(t => t.id === teacherId);
         
+        setHoveredCandidate(null); // ✅ 새로운 수업 선택 시 호버 상태 초기화
         setSelectedSlot({ teacherId, day, period, classNum: selClassNum, subject: selSubject }); 
         setIsFiltered(true);
 
@@ -599,6 +601,7 @@
         setSelectedSlot(null);
         setSwapCandidates([]);
         setIsFiltered(false);
+        setHoveredCandidate(null); // ✅ 초기화 시 호버 상태도 초기화
       };
 
       const displayedTeachers = useMemo(() => {
@@ -845,9 +848,10 @@
                             const isSelected = selectedSlot?.teacherId === teacher.id && selectedSlot?.day === d.name && selectedSlot?.period === p;
                             const isSwap = swapCandidates.some(c => c.teacherId === teacher.id && c.day === d.name && c.period === p);
                             
-                            const isSwapTarget = isTeacherSwapCandidate && selectedSlot?.day === d.name && selectedSlot?.period === p;
-                            const matchingCandidate = isTeacherSelected ? swapCandidates.find(c => c.day === d.name && c.period === p) : null;
-                            const isSelectedTarget = !!matchingCandidate;
+                            // ✅ 호버된 교환 후보에 한해서만 렌더링되도록 조건 변경
+                            const isHoveredCandidateTeacher = hoveredCandidate && hoveredCandidate.teacherId === teacher.id;
+                            const isSwapTarget = isHoveredCandidateTeacher && selectedSlot?.day === d.name && selectedSlot?.period === p;
+                            const isSelectedTarget = isTeacherSelected && hoveredCandidate && hoveredCandidate.day === d.name && hoveredCandidate.period === p;
 
                             let cellBg = 'bg-white hover:bg-slate-100 cursor-pointer';
                             let textColor = 'text-slate-700';
@@ -882,8 +886,8 @@
                                  </div>
                               );
                             } else if (isSelectedTarget) {
-                              const candTeacher = teachers.find(t => t.id === matchingCandidate.teacherId);
-                              const candSlot = candTeacher.schedule[`${d.name}_${p}`];
+                              const candTeacher = teachers.find(t => t.id === hoveredCandidate.teacherId);
+                              const candSlot = candTeacher.schedule[`${hoveredCandidate.day}_${hoveredCandidate.period}`];
                               previewContent = (
                                  <div className="flex flex-col items-center justify-center opacity-100 animate-pulse-slow">
                                    <span className="text-[11px] font-bold text-blue-800">{candSlot.subject}</span>
@@ -897,6 +901,13 @@
                               <td 
                                 key={`${d.name}_${p}`} 
                                 onClick={() => handleCellClick(teacher.id, d.name, p, slotData)}
+                                onMouseEnter={() => {
+                                  // ✅ 노란색 셀에 마우스를 올릴 때만 상태 업데이트
+                                  if (isSwap) setHoveredCandidate({ teacherId: teacher.id, day: d.name, period: p });
+                                }}
+                                onMouseLeave={() => {
+                                  if (isSwap) setHoveredCandidate(null);
+                                }}
                                 className={`border border-slate-300 p-0.5 align-middle transition-all duration-200 ${cellBg}`}
                                 style={pIdx === d.periods.length - 1 ? thickBorderRight : {}}
                                 title={isSwap ? '클릭하여 교체하기' : isSelected ? '클릭하여 선택 취소' : slotData?.isMovingClass ? '묶음 이동수업(색칠됨)은 교체 불가' : ''}
