@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>전체 교사 시간표 교체 시스템</title>
+  
+  <!-- 디자인을 위한 Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- 엑셀 파싱을 위한 SheetJS & ExcelJS -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+  
+  <!-- React 실행을 위한 Babel -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    .animate-fade-in { animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+    .animate-pulse-slow { animation: pulseHighlight 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+    .animate-spin-once { animation: spin 0.5s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translate(-50%, -10px) scale(0.98); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+    @keyframes pulseHighlight { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.85; transform: scale(0.98); background-color: #fcd34d; } }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    
+    .pattern-diagonal-lines { background-image: repeating-linear-gradient(45deg, #f1f5f9 0, #f1f5f9 1px, transparent 0, transparent 50%); background-size: 8px 8px; }
+    .pattern-purple-200 { background-image: repeating-linear-gradient(45deg, #e9d5ff 0, #e9d5ff 1px, transparent 0, transparent 50%); }
+    .pattern-bg-purple-50 { background-color: #faf5ff; }
+    
+    .custom-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- 여기서부터 실제 React 코드입니다 -->
+  <script type="text/babel" data-type="module">
+    import React, { useState, useMemo, useEffect, useRef } from 'https://esm.sh/react@18.2.0';
+    import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
+    import { Download, Upload, RefreshCw, Filter, CheckCircle2, AlertCircle, Info, Lock, Unlock, Edit2, Trash2 } from 'https://esm.sh/lucide-react@0.263.1';
+    
+    // Firebase 모듈 임포트
+    import { initializeApp } from 'https://esm.sh/firebase@10.5.0/app';
+    import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://esm.sh/firebase@10.5.0/auth';
+    import { getFirestore, doc, setDoc, onSnapshot } from 'https://esm.sh/firebase@10.5.0/firestore';
+
+    // =========================================================================
+    // 🚀 [필수] 여기에 선생님의 Firebase 설정 코드를 붙여넣으세요! 🚀
+    // Firebase 콘솔 -> 프로젝트 설정 -> 내 앱 -> SDK 설정 및 구성에서 확인 가능
+    // =========================================================================
+    const firebaseConfig = {
+      // apiKey: "AIzaSyC...",
+      // authDomain: "school-timetable-app.firebaseapp.com",
+      // projectId: "school-timetable-app",
+      // storageBucket: "school-timetable-app.appspot.com",
+      // messagingSenderId: "1234567890",
+      // appId: "1:1234567890:web:abcdef"
+    };
+
+    let app, auth, db;
+    try {
+      if (Object.keys(firebaseConfig).length > 0) {
+        app = initializeApp(firebaseConfig);
+        auth = getAuth(app);
+        db = getFirestore(app);
+      }
+    } catch (e) {
+      console.warn("Firebase 초기화 안됨(오프라인 모드로 실행됩니다):", e);
+    }
+
+    // --- 상수 및 더미 데이터 설정 ---
+    const DAYS = [
+      { name: '월', periods: [1, 2, 3, 4, 5, 6] },
+      { name: '화', periods: [1, 2, 3, 4, 5, 6, 7] },
+      { name: '수', periods: [1, 2, 3, 4, 5] },
+      { name: '목', periods: [1, 2, 3, 4, 5, 6, 7] },
+      { name: '금', periods: [1, 2, 3, 4, 5, 6, 7] },
+    ];
+
+    const INITIAL_TEACHERS = [
+      {
+        id: 1, name: "김화학", hours: "14", teacherRight: "김화학", homeroom: "3-1", remarks: "3학년 부장",
+        schedule: {
+          "월_4": { subject: "화학", classNum: "3-1" },
+          "월_5": { subject: "화학", classNum: "3-4" },
+          "화_1": { subject: "화학", classNum: "3-5" },
+          "화_4": { subject: "화학", classNum: "3-6" },
+          "수_1": { subject: "화학", classNum: "3-2" },
+          "수_2": { subject: "화학", classNum: "3-3" },
+          "목_3": { subject: "화학", classNum: "3-7", isMovingClass: true },
+          "금_3": { subject: "화학", classNum: "3-4", isBlock: true },
+        }
+      },
+      {
+        id: 2, name: "이국어", hours: "13", teacherRight: "이국어", homeroom: "1-4", remarks: "1학년 담임",
+        schedule: {
+          "월_4": { subject: "국어", classNum: "1-6" },
+          "월_6": { subject: "국어", classNum: "1-4" },
+          "화_1": { subject: "국어", classNum: "1-5" },
+          "화_3": { subject: "국어", classNum: "1-3" },
+          "수_3": { subject: "국어", classNum: "1-1" },
+          "목_1": { subject: "국어", classNum: "1-2" },
+          "금_6": { subject: "국어", classNum: "1-6" },
+        }
+      }
+    ];
+
+    function App() {
+      const [user, setUser] = useState(null);
+      const [teachers, setTeachers] = useState(INITIAL_TEACHERS);
+      const [selectedSlot, setSelectedSlot] = useState(null);
+      const [swapCandidates, setSwapCandidates] = useState([]);
+      const [isFiltered, setIsFiltered] = useState(false);
+      
+      const [appTitle, setAppTitle] = useState("전체 교사 시간표");
+      const [isAdmin, setIsAdmin] = useState(false);
+      const [showAdminModal, setShowAdminModal] = useState(false);
+      const [adminPwd, setAdminPwd] = useState("");
+      const [isEditingTitle, setIsEditingTitle] = useState(false);
+      const [tempTitle, setTempTitle] = useState("");
+
+      const [message, setMessage] = useState(null);
+      const [messageType, setMessageType] = useState('info'); 
+      const fileInputRef = useRef(null);
+
+      // --- 1. Firebase 인증 및 실시간 동기화 리스너 ---
+      useEffect(() => {
+        if (!auth) return;
+        const initAuth = async () => {
+          try {
+            // 외부 저장소에서는 익명 로그인 사용
+            await signInAnonymously(auth);
+          } catch (error) {
+            console.error("익명 로그인 실패:", error);
+          }
+        };
+        initAuth();
+        
+        const unsubscribe = onAuthStateChanged(auth, setUser);
+        return () => unsubscribe();
+      }, []);
+
+      useEffect(() => {
+        if (!user || !db) return;
+
+        // Firebase 데이터베이스 문서 경로 지정
+        const docRef = doc(db, 'timetable', 'shared_data');
+        
+        const unsubscribe = onSnapshot(docRef, (docSnap) => {
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            if (data.teachers && data.teachers.length > 0) {
+              setTeachers(data.teachers);
+            }
+            if (data.title) {
+              setAppTitle(data.title);
+            }
+          }
+        }, (err) => {
+          console.error("실시간 데이터 수신 오류:", err);
+          showMessage("클라우드 연결 중 오류가 발생했습니다.", "error");
+        });
+
+        return () => unsubscribe();
+      }, [user]);
+
+      const showMessage = (text, type = 'info') => {
+        setMessage(text);
+        setMessageType(type);
+        setTimeout(() => setMessage(null), 3000);
+      };
+
+      const isFree = (teacher, day, period) => {
+        const slot = teacher.schedule[`${day}_${period}`];
+        return !slot || (!slot.subject && !slot.classNum);
+      };
+
+      // --- 관리자 기능 ---
+      const handleAdminLogin = () => {
+        if (adminPwd === "byultop1") {
+          setIsAdmin(true);
+          setShowAdminModal(false);
+          setAdminPwd("");
+          showMessage("관리자 권한이 활성화되었습니다.", "success");
+        } else {
+          showMessage("비밀번호가 일치하지 않습니다.", "error");
+        }
+      };
+
+      const handleTitleUpdate = async () => {
+        setIsEditingTitle(false);
+        if (!tempTitle.trim() || tempTitle === appTitle) return;
+        
+        setAppTitle(tempTitle);
+        if (user && db) {
+          try {
+            const docRef = doc(db, 'timetable', 'shared_data');
+            await setDoc(docRef, { title: tempTitle, lastUpdated: new Date().toISOString() }, { merge: true });
+            showMessage("제목이 성공적으로 변경되었습니다.", "success");
+          } catch (error) {
+            showMessage("제목 변경 중 오류가 발생했습니다.", "error");
+          }
+        }
+      };
+
+      const handleFullDataReset = async () => {
+        if (!window.confirm("정말로 업로드된 모든 시간표 데이터를 초기화하시겠습니까?\n(기본 예시 데이터로 돌아가며, 이 작업은 되돌릴 수 없습니다.)")) return;
+        
+        if (user && db) {
+          try {
+            const docRef = doc(db, 'timetable', 'shared_data');
+            await setDoc(docRef, { teachers: INITIAL_TEACHERS, lastUpdated: new Date().toISOString() }, { merge: true });
+            showMessage("데이터가 성공적으로 초기화되었습니다.", "success");
+          } catch (error) {
+            showMessage("데이터 초기화 중 오류가 발생했습니다.", "error");
+          }
+        } else {
+          setTeachers(INITIAL_TEACHERS);
+          showMessage("로컬 데이터가 초기화되었습니다.", "success");
+        }
+        handleReset();
+      };
+
+      // --- 교환 실행 로직 ---
+      const executeSwap = async (slot1, slot2) => {
+        const newTeachers = [...teachers];
+        const t1Index = newTeachers.findIndex(t => t.id === slot1.teacherId);
+        const t2Index = newTeachers.findIndex(t => t.id === slot2.teacherId);
+        
+        if (t1Index === -1 || t2Index === -1) return;
+
+        const t1 = { ...newTeachers[t1Index], schedule: { ...newTeachers[t1Index].schedule } };
+        const t2 = { ...newTeachers[t2Index], schedule: { ...newTeachers[t2Index].schedule } };
+
+        const key1 = `${slot1.day}_${slot1.period}`;
+        const key2 = `${slot2.day}_${slot2.period}`;
+
+        const s1 = t1.schedule[key1];
+        const s2 = t2.schedule[key2];
+
+        t1.schedule[key2] = s2;
+        delete t1.schedule[key1];
+
+        t2.schedule[key1] = s1;
+        delete t2.schedule[key2];
+
+        newTeachers[t1Index] = t1;
+        newTeachers[t2Index] = t2;
+
+        setTeachers(newTeachers);
+        handleReset();
+        showMessage("시간표가 성공적으로 교체되었습니다!", "success");
+
+        if (user && db) {
+          try {
+            const docRef = doc(db, 'timetable', 'shared_data');
+            await setDoc(docRef, { teachers: newTeachers, lastUpdated: new Date().toISOString() }, { merge: true });
+          } catch (error) {
+            console.error(error);
+            showMessage("클라우드 저장 중 오류가 발생했습니다.", "error");
+          }
+        }
+      };
+
+      const handleCellClick = (teacherId, day, period, slotData) => {
+        const isCandidateClick = swapCandidates.find(c => c.teacherId === teacherId && c.day === day && c.period === period);
+        
+        if (selectedSlot && isCandidateClick) {
+            if(window.confirm(`정말로 시간표를 교체하시겠습니까?\n(${day}요일 ${period}교시 <-> ${selectedSlot.day}요일 ${selectedSlot.period}교시)`)){
+                executeSwap(selectedSlot, isCandidateClick);
+            }
+            return;
+        }
+
+        if (selectedSlot && selectedSlot.teacherId === teacherId && selectedSlot.day === day && selectedSlot.period === period) {
+            handleReset();
+            return;
+        }
+
+        if (!slotData || !slotData.classNum) {
+          showMessage("교환하고자 하는 수업을 선택한 후 클릭해주세요.", "info");
+          return;
+        }
+        if (slotData.isBlock) {
+          showMessage("블록수업이라 이동이 불가합니다.", "error");
+          return;
+        }
+        if (slotData.isMovingClass) {
+          showMessage("이동수업(색이 칠해진 수업)이라 교체가 불가합니다.", "error");
+          return;
+        }
+
+        const selClassNum = slotData.classNum;
+        const selSubject = slotData.subject; 
+        const selTeacher = teachers.find(t => t.id === teacherId);
+        
+        setSelectedSlot({ teacherId, day, period, classNum: selClassNum, subject: selSubject }); 
+        setIsFiltered(true);
+
+        const candidates = [];
+        teachers.forEach(otherTeacher => {
+          if (otherTeacher.id === teacherId) return;
+
+          DAYS.forEach(d => {
+            d.periods.forEach(p => {
+              const otherSlot = otherTeacher.schedule[`${d.name}_${p}`];
+              if (otherSlot && otherSlot.classNum === selClassNum && !otherSlot.isBlock && !otherSlot.isMovingClass) {
+                const isOtherFreeAtSelTime = isFree(otherTeacher, day, period);
+                const amIFreeAtOtherTime = isFree(selTeacher, d.name, p);
+
+                if (isOtherFreeAtSelTime && amIFreeAtOtherTime) {
+                  candidates.push({
+                    teacherId: otherTeacher.id,
+                    day: d.name,
+                    period: p
+                  });
+                }
+              }
+            });
+          });
+        });
+
+        setSwapCandidates(candidates);
+        if (candidates.length === 0) {
+          showMessage("현재 조건에 맞는 교환 가능한 시간표가 없습니다.", "error");
+        } else {
+          showMessage(`${candidates.length}건의 교환 가능한 시간표를 찾았습니다! 노란색 셀을 클릭하여 교환하세요.`, "success");
+        }
+      };
+
+      // --- 엑셀 파싱 로직 ---
+      const handleFileUpload = (e) => {
+        const file = e.target.files[0];
+        if (!file || !window.ExcelJS) return;
+
+        showMessage("엑셀 파일을 처리하고 서버에 동기화 중입니다...", "info");
+
+        const reader = new FileReader();
+        reader.onload = async (evt) => {
+          try {
+            const buffer = evt.target.result;
+            const workbook = new window.ExcelJS.Workbook();
+            
+            try {
+              await workbook.xlsx.load(buffer);
+            } catch (loadErr) {
+              throw new Error("엑셀 파일을 읽을 수 없습니다. 지원하지 않는 형식(.xls 등)이거나 파일이 손상되었을 수 있습니다. .xlsx 형식으로 다시 저장해 주세요.");
+            }
+            
+            const ws = workbook.worksheets[0];
+
+            const getText = (cellData) => {
+              if (!cellData) return '';
+              try {
+                const targetCell = cellData.isMerged && cellData.master ? cellData.master : cellData;
+                let val = targetCell.text !== undefined ? targetCell.text : targetCell.value;
+                
+                if (val === null || val === undefined) return '';
+                
+                if (typeof val === 'object') {
+                  if (val.richText) return val.richText.map(rt => rt.text).join('').trim();
+                  if (val.result !== undefined) {
+                     if(typeof val.result === 'object' && val.result.error) return '';
+                     return String(val.result).trim();
+                  }
+                  if (val instanceof Date) return val.toLocaleDateString();
+                  return '';
+                }
+                return String(val).trim();
+              } catch(e) {
+                return '';
+              }
+            };
+
+            const hasColor = (cellData) => {
+              if (!cellData) return false;
+              try {
+                const targetCell = cellData.isMerged && cellData.master ? cellData.master : cellData;
+                const fill = targetCell.fill;
+                
+                if (!fill) return false;
+                if (fill.type === 'pattern' && fill.pattern !== 'none') {
+                    const fg = fill.fgColor;
+                    if (fg) {
+                        if (fg.argb) {
+                            const argb = fg.argb.toUpperCase();
+                            if (argb === 'FFFFFFFF' || argb === '00000000' || argb === 'FFFFFF') return false;
+                            return true;
+                        }
+                        if (fg.theme !== undefined && fg.theme !== 0 && fg.theme !== 1) return true;
+                    }
+                }
+              } catch(e) {
+                return false;
+              }
+              return false;
+            };
+
+            const data = [];
+            ws.eachRow({ includeEmpty: true }, (row, rowNumber) => {
+               const rowData = [];
+               row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+                  let cellData = { isMerged: false };
+                  try {
+                    cellData.value = cell.value;
+                    cellData.text = cell.text;
+                    cellData.fill = cell.fill;
+                    cellData.isMerged = cell.isMerged;
+                    if (cell.isMerged && cell.master) {
+                       cellData.master = { value: cell.master.value, text: cell.master.text, fill: cell.master.fill };
+                    }
+                  } catch (cellErr) {}
+                  rowData[colNumber - 1] = cellData;
+               });
+               data[rowNumber - 1] = rowData;
+            });
+
+            if (data.length < 5) throw new Error("데이터가 너무 적거나 양식이 맞지 않습니다.");
+
+            let dayRowIdx = -1;
+            for (let i = 0; i < Math.min(15, data.length); i++) {
+              if (!data[i]) continue;
+              const rowStr = data[i].map(c => getText(c)).join('');
+              if (rowStr.includes("월") && rowStr.includes("화")) {
+                dayRowIdx = i;
+                break;
+              }
+            }
+
+            if (dayRowIdx === -1) throw new Error("양식에서 요일(월, 화...) 헤더를 찾을 수 없습니다.");
+
+            const headers1 = data[dayRowIdx] || [];
+            const headers2 = data[dayRowIdx + 1] || [];
+            const colMap = {};
+            let currentDay = '';
+
+            for (let col = 2; col < Math.max(headers1.length, headers2.length); col++) {
+              let h1Val = getText(headers1[col]);
+              if (['월', '화', '수', '목', '금'].includes(h1Val)) currentDay = h1Val;
+              
+              let h2Val = getText(headers2[col]);
+              if (currentDay && h2Val && !isNaN(Number(h2Val))) {
+                 colMap[col] = `${currentDay}_${h2Val}`;
+              }
+            }
+
+            let hoursCol = -1, homeroomCol = -1, remarkCol = -1, rightTeacherCol = -1;
+            for (let c = 0; c < headers1.length; c++) {
+                const val = getText(headers1[c]);
+                if (val === "시수") hoursCol = c;
+                if (val === "교사" && c > 5) rightTeacherCol = c;
+                if (val === "담임") homeroomCol = c;
+                if (val === "비고") remarkCol = c;
+            }
+
+            const newTeachers = [];
+            let r = dayRowIdx + 2;
+            
+            while (r < data.length) {
+              const row1 = data[r] || [];
+              const row2 = data[r + 1] || [];
+
+              let teacherName = getText(row1[1]);
+              if (!teacherName && rightTeacherCol > -1) teacherName = getText(row1[rightTeacherCol]);
+
+              if (!teacherName) { r++; continue; }
+
+              const teacher = {
+                id: r,
+                name: teacherName,
+                hours: hoursCol > -1 ? getText(row1[hoursCol]) : "",
+                teacherRight: rightTeacherCol > -1 ? getText(row1[rightTeacherCol]) : "",
+                homeroom: homeroomCol > -1 ? getText(row1[homeroomCol]) : "",
+                remarks: remarkCol > -1 ? getText(row1[remarkCol]) : "",
+                schedule: {}
+              };
+
+              for (let col = 2; col < Math.max(row1.length, row2.length); col++) {
+                 const slotKey = colMap[col];
+                 if (!slotKey) continue;
+
+                 const c1 = row1[col];
+                 const c2 = row2[col];
+
+                 let subject = getText(c1);
+                 let classNum = getText(c2);
+
+                 if (!subject && !classNum) continue;
+
+                 if (subject.includes('\n') && !classNum) {
+                    const parts = subject.split('\n');
+                    subject = parts[0].trim();
+                    classNum = parts.slice(1).join(' ').trim();
+                 }
+
+                 let isBlock = subject.startsWith('*');
+                 if(isBlock) subject = subject.substring(1).trim();
+
+                 let isMovingClass = hasColor(c1) || hasColor(c2);
+
+                 teacher.schedule[slotKey] = { subject, classNum, isBlock, isMovingClass };
+              }
+              
+              newTeachers.push(teacher);
+              
+              let jump = 1;
+              if (row2 && row2.length > 0) {
+                 const isTeacherMerged = row2[1] && row2[1].isMerged;
+                 const isTeacherEmpty = !row2[1] || (!row2[1].value && !row2[1].text);
+                 if (isTeacherMerged || isTeacherEmpty) {
+                     jump = 2;
+                 }
+              }
+              r += jump;
+            }
+
+            if (user && db) {
+              const docRef = doc(db, 'timetable', 'shared_data');
+              await setDoc(docRef, { teachers: newTeachers, lastUpdated: new Date().toISOString() }, { merge: true });
+              showMessage("실제 양식 파싱 완료! 데이터가 동기화되었습니다.", "success");
+            } else {
+              setTeachers(newTeachers);
+              showMessage("로컬 화면에 적용되었습니다. (클라우드 미연결)", "info");
+            }
+            
+            handleReset(); 
+          } catch (error) {
+            console.error("Excel Parsing Error:", error);
+            const errorMsg = error.message || "알 수 없는 오류가 발생했습니다.";
+            showMessage(`파싱 오류: ${errorMsg}`, "error");
+          }
+          e.target.value = '';
+        };
+        reader.readAsArrayBuffer(file);
+      };
+
+      const downloadSample = () => {
+        if (!window.XLSX) {
+           showMessage("엑셀 처리 모듈을 불러오는 중입니다. 잠시 후 다시 시도해주세요.", "error");
+           return;
+        }
+
+        const ws_data = [];
+        ws_data.push([`${appTitle}`, "", "", "", "", "빈칸X", "초기화", "교환하고자 하는 수업을 클릭후 버튼을 눌러주세요."]); 
+        ws_data.push([]); 
+        
+        const row1 = ["번호", "교사"];
+        DAYS.forEach(d => {
+          row1.push(d.name);
+          for(let i=1; i<d.periods.length; i++) row1.push(""); 
+        });
+        row1.push("시수", "교사", "담임", "비고");
+        ws_data.push(row1);
+
+        const row2 = ["", ""];
+        DAYS.forEach(d => {
+          d.periods.forEach(p => row2.push(p));
+        });
+        row2.push("", "", "", "");
+        ws_data.push(row2);
+
+        const t1_row1 = [1, "김화학"];
+        const t1_row2 = ["", ""];
+        DAYS.forEach(d => {
+          d.periods.forEach(p => {
+            if (d.name === "월" && p === 4) { t1_row1.push("화학"); t1_row2.push("3-1"); }
+            else if (d.name === "금" && p === 3) { t1_row1.push("*화학"); t1_row2.push("3-4"); }
+            else { t1_row1.push(""); t1_row2.push(""); }
+          });
+        });
+        t1_row1.push("14", "김화학", "3-1", "예시 (2줄 양식: 위 과목, 아래 반. 블록은 과목앞에 *)");
+        t1_row2.push("", "", "", "");
+        
+        ws_data.push(t1_row1);
+        ws_data.push(t1_row2);
+
+        const ws = window.XLSX.utils.aoa_to_sheet(ws_data);
+
+        ws['!merges'] = [
+           { s: { r: 0, c: 0 }, e: { r: 0, c: 4 } },
+           { s: { r: 2, c: 0 }, e: { r: 3, c: 0 } },
+           { s: { r: 2, c: 1 }, e: { r: 3, c: 1 } },
+           { s: { r: 4, c: 0 }, e: { r: 5, c: 0 } },
+           { s: { r: 4, c: 1 }, e: { r: 5, c: 1 } },
+        ];
+        let startCol = 2;
+        DAYS.forEach(d => {
+           ws['!merges'].push({ s: { r: 2, c: startCol }, e: { r: 2, c: startCol + d.periods.length - 1 }});
+           startCol += d.periods.length;
+        });
+        ws['!merges'].push({ s: { r: 2, c: startCol }, e: { r: 3, c: startCol }});
+        ws['!merges'].push({ s: { r: 2, c: startCol+1 }, e: { r: 3, c: startCol+1 }});
+        ws['!merges'].push({ s: { r: 2, c: startCol+2 }, e: { r: 3, c: startCol+2 }});
+        ws['!merges'].push({ s: { r: 2, c: startCol+3 }, e: { r: 3, c: startCol+3 }});
+        
+        ws['!merges'].push({ s: { r: 4, c: startCol }, e: { r: 5, c: startCol }});
+        ws['!merges'].push({ s: { r: 4, c: startCol+1 }, e: { r: 5, c: startCol+1 }});
+        ws['!merges'].push({ s: { r: 4, c: startCol+2 }, e: { r: 5, c: startCol+2 }});
+        ws['!merges'].push({ s: { r: 4, c: startCol+3 }, e: { r: 5, c: startCol+3 }});
+
+        const wb = window.XLSX.utils.book_new();
+        window.XLSX.utils.book_append_sheet(wb, ws, "시간표");
+        window.XLSX.writeFile(wb, "시간표_교체양식.xlsx");
+      };
+
+      const handleReset = () => {
+        setSelectedSlot(null);
+        setSwapCandidates([]);
+        setIsFiltered(false);
+      };
+
+      const displayedTeachers = useMemo(() => {
+        if (!isFiltered || !selectedSlot) return teachers;
+        const involvedTeacherIds = new Set([
+          selectedSlot.teacherId,
+          ...swapCandidates.map(c => c.teacherId)
+        ]);
+        return teachers.filter(t => involvedTeacherIds.has(t.id));
+      }, [teachers, isFiltered, selectedSlot, swapCandidates]);
+
+      const renderColgroup = () => {
+        return (
+          <colgroup>
+            <col className="w-8" />
+            <col className="w-14" />
+            {DAYS.map((d, i) => (
+              d.periods.map(p => <col key={`${i}_${p}`} className="w-11" />)
+            ))}
+            <col className="w-10" />
+            <col className="w-14" />
+            <col className="w-12" />
+            <col className="w-20" />
+          </colgroup>
+        );
+      };
+
+      const MessageIcon = messageType === 'success' ? CheckCircle2 : messageType === 'error' ? AlertCircle : Info;
+      const messageColor = messageType === 'success' ? 'bg-emerald-600' : messageType === 'error' ? 'bg-red-600' : 'bg-slate-800';
+      const thickBorderRight = { borderRight: '2px solid #64748b' }; 
+
+      return (
+        <div className="min-h-screen bg-slate-100 p-2 md:p-6 font-sans text-slate-800 relative">
+          
+          {/* 관리자 인증 모달 */}
+          {showAdminModal && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center animate-fade-in p-4">
+              <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm flex flex-col gap-4">
+                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <Lock size={20} className="text-slate-500" /> 관리자 인증
+                </h3>
+                <p className="text-sm text-slate-500">
+                  제목 수정, 엑셀 업로드 및 데이터 초기화 기능은 관리자만 이용할 수 있습니다.
+                </p>
+                <input 
+                  type="password" 
+                  value={adminPwd} 
+                  onChange={e => setAdminPwd(e.target.value)} 
+                  onKeyDown={e => e.key === 'Enter' && handleAdminLogin()} 
+                  className="w-full border border-slate-300 rounded-lg px-3.5 py-2.5 text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-500" 
+                  placeholder="비밀번호 입력" 
+                  autoFocus 
+                />
+                <div className="flex justify-end gap-2 mt-2">
+                  <button onClick={() => { setShowAdminModal(false); setAdminPwd(""); }} className="px-4 py-2 rounded-lg text-slate-600 bg-slate-100 hover:bg-slate-200 text-sm font-medium transition-colors">취소</button>
+                  <button onClick={handleAdminLogin} className="px-4 py-2 rounded-lg text-white bg-emerald-600 hover:bg-emerald-500 text-sm font-medium shadow-md shadow-emerald-900/20 transition-all">확인</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Toast Message */}
+          {message && (
+            <div className={`fixed top-6 left-1/2 transform -translate-x-1/2 ${messageColor} text-white px-5 py-3 rounded-lg shadow-2xl z-[60] animate-fade-in flex items-center gap-3 text-sm font-medium`}>
+              <MessageIcon size={18} />
+              {message}
+            </div>
+          )}
+
+          <div className="bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
+            
+            {/* Header Control Panel */}
+            <div className="bg-slate-900 text-white p-5 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-5 border-b border-slate-700">
+              
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center flex-wrap gap-2.5">
+                  {isEditingTitle ? (
+                    <input
+                      value={tempTitle}
+                      onChange={(e) => setTempTitle(e.target.value)}
+                      onBlur={handleTitleUpdate}
+                      onKeyDown={(e) => e.key === 'Enter' && handleTitleUpdate()}
+                      className="text-xl md:text-2xl font-bold tracking-tight bg-slate-800 text-white border-b-2 border-emerald-500 focus:outline-none px-1 w-48 md:w-64"
+                      autoFocus
+                    />
+                  ) : (
+                    <h1 className="text-xl md:text-2xl font-bold tracking-tight flex items-center gap-2">
+                      {appTitle}
+                      {isAdmin && (
+                        <button 
+                          onClick={() => { setTempTitle(appTitle); setIsEditingTitle(true); }} 
+                          className="text-slate-400 hover:text-white transition-colors" 
+                          title="제목 수정"
+                        >
+                          <Edit2 size={16} />
+                        </button>
+                      )}
+                    </h1>
+                  )}
+                  
+                  <span className="text-sm font-medium text-slate-400 bg-slate-800 px-2 py-0.5 rounded-md border border-slate-700 hidden sm:inline-block">스마트 교체 시스템</span>
+                  
+                  {user && db ? (
+                    <span className="ml-0 md:ml-1 text-xs bg-emerald-950 text-emerald-400 px-2.5 py-1 rounded-full border border-emerald-800 flex items-center gap-1.5 shadow-sm font-medium">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                      동기화됨
+                    </span>
+                  ) : (
+                    <span className="ml-0 md:ml-1 text-xs bg-slate-800 text-slate-400 px-2.5 py-1 rounded-full border border-slate-700 font-medium">
+                      오프라인 (개인용)
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-400 mt-1">변경을 원하는 수업을 클릭하면, 교환 가능한 대상자가 노란색으로 빛납니다.</p>
+              </div>
+              
+              <div className="flex items-center gap-2.5 flex-wrap">
+                {isAdmin && (
+                  <>
+                    <button 
+                      onClick={downloadSample}
+                      disabled={!isXlsxLoaded}
+                      className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 disabled:opacity-50 rounded-lg text-sm font-medium transition-all focus:ring-2 focus:ring-slate-500 whitespace-nowrap"
+                    >
+                      <Download size={16} />
+                      양식 다운로드
+                    </button>
+                    
+                    <input 
+                      type="file" 
+                      accept=".xlsx, .xls, .xlsm" 
+                      className="hidden" 
+                      ref={fileInputRef} 
+                      onChange={handleFileUpload} 
+                    />
+                    <button 
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={!isXlsxLoaded}
+                      className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 rounded-lg text-sm font-medium transition-all focus:ring-2 focus:ring-emerald-400 whitespace-nowrap shadow-md shadow-emerald-900/20"
+                      title="학교 양식을 그대로 올려주세요."
+                    >
+                      <Upload size={16} />
+                      엑셀 업로드
+                    </button>
+                  </>
+                )}
+                
+                <div className="w-px h-6 bg-slate-700 mx-1 hidden md:block"></div>
+                
+                <button 
+                  onClick={handleReset}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm font-medium transition-all focus:ring-2 focus:ring-slate-400 whitespace-nowrap"
+                >
+                  <RefreshCw size={16} className={selectedSlot ? "animate-spin-once" : ""} />
+                  선택 초기화
+                </button>
+                <button 
+                  onClick={() => setIsFiltered(!isFiltered)}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium transition-all focus:ring-2 whitespace-nowrap shadow-sm ${isFiltered ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-900/20' : 'bg-slate-800 hover:bg-slate-700 border border-slate-600'}`}
+                  title="빈칸을 제외하고 교환대상자만 봅니다."
+                >
+                  <Filter size={16} />
+                  {isFiltered ? '전체 보기' : '교환 대상만 보기'}
+                </button>
+                
+                {isAdmin && (
+                  <button 
+                    onClick={handleFullDataReset}
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-red-600/90 hover:bg-red-500 rounded-lg text-sm font-medium transition-all focus:ring-2 focus:ring-red-400 whitespace-nowrap shadow-md shadow-red-900/20 ml-1"
+                    title="업로드된 시간표 데이터를 모두 삭제하고 예시 모드로 돌아갑니다."
+                  >
+                    <Trash2 size={16} />
+                    데이터 초기화
+                  </button>
+                )}
+
+                <div className="w-px h-6 bg-slate-700 mx-1 hidden md:block"></div>
+
+                {!isAdmin ? (
+                  <button 
+                    onClick={() => setShowAdminModal(true)}
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg text-sm font-medium text-slate-300 transition-all focus:ring-2 focus:ring-slate-500 whitespace-nowrap"
+                  >
+                    <Lock size={14} /> 관리자
+                  </button>
+                ) : (
+                  <button 
+                    onClick={() => { setIsAdmin(false); showMessage("관리자 모드가 종료되었습니다.", "info"); }}
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-lg text-sm font-medium text-slate-200 transition-all focus:ring-2 focus:ring-slate-500 whitespace-nowrap"
+                  >
+                    <Unlock size={14} /> 로그아웃
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Timetable Grid Area */}
+            <div className="overflow-auto flex-1 p-4 bg-slate-50 custom-scrollbar">
+              <table className="table-fixed w-max border-collapse border border-slate-300 bg-white shadow-sm text-xs text-center rounded-lg overflow-hidden">
+                {renderColgroup()}
+                
+                <thead>
+                  <tr className="bg-slate-200 text-slate-800">
+                    <th rowSpan={2} className="border border-slate-300 p-1 font-bold whitespace-nowrap">번호</th>
+                    <th rowSpan={2} className="border border-slate-300 p-1 font-bold whitespace-nowrap" style={thickBorderRight}>교사</th>
+                    {DAYS.map(d => (
+                      <th key={d.name} colSpan={d.periods.length} className="border border-slate-300 p-1.5 font-bold text-sm bg-slate-200" style={thickBorderRight}>
+                        {d.name}요일
+                      </th>
+                    ))}
+                    <th rowSpan={2} className="border border-slate-300 p-1 font-bold whitespace-nowrap">시수</th>
+                    <th rowSpan={2} className="border border-slate-300 p-1 font-bold whitespace-nowrap">교사</th>
+                    <th rowSpan={2} className="border border-slate-300 p-1 font-bold whitespace-nowrap">담임</th>
+                    <th rowSpan={2} className="border border-slate-300 p-1 font-bold whitespace-nowrap">비고</th>
+                  </tr>
+                  <tr className="bg-slate-100 text-slate-600">
+                    {DAYS.map(d => (
+                      d.periods.map((p, pIdx) => (
+                        <th key={`${d.name}_${p}`} className="border border-slate-300 py-1 font-semibold w-14" style={pIdx === d.periods.length - 1 ? thickBorderRight : {}}>
+                          {p}
+                        </th>
+                      ))
+                    ))}
+                  </tr>
+                </thead>
+                
+                <tbody>
+                  {displayedTeachers.map((teacher, index) => {
+                    
+                    const isTeacherSwapCandidate = swapCandidates.some(c => c.teacherId === teacher.id);
+                    const isTeacherSelected = selectedSlot?.teacherId === teacher.id;
+                    
+                    let teacherBgClass = "bg-white";
+                    if (isTeacherSelected) teacherBgClass = "bg-blue-50/60";
+                    else if (isTeacherSwapCandidate) teacherBgClass = "bg-amber-50/60";
+
+                    return (
+                      <tr key={teacher.id} className="hover:bg-slate-50 transition-colors h-14 group">
+                        <td className={`border border-slate-300 text-slate-400 font-medium ${teacherBgClass}`}>{index + 1}</td>
+                        <td className={`border border-slate-300 font-bold text-slate-700 ${teacherBgClass}`} style={thickBorderRight}>{teacher.name}</td>
+                        
+                        {DAYS.map(d => (
+                          d.periods.map((p, pIdx) => {
+                            const slotData = teacher.schedule[`${d.name}_${p}`];
+                            
+                            const isSelected = selectedSlot?.teacherId === teacher.id && selectedSlot?.day === d.name && selectedSlot?.period === p;
+                            const isSwap = swapCandidates.some(c => c.teacherId === teacher.id && c.day === d.name && c.period === p);
+                            
+                            const isSwapTarget = isTeacherSwapCandidate && selectedSlot?.day === d.name && selectedSlot?.period === p;
+                            const matchingCandidate = isTeacherSelected ? swapCandidates.find(c => c.day === d.name && c.period === p) : null;
+                            const isSelectedTarget = !!matchingCandidate;
+
+                            let cellBg = 'bg-white hover:bg-slate-100 cursor-pointer';
+                            let textColor = 'text-slate-700';
+                            
+                            if (isSelected) {
+                              cellBg = 'bg-blue-500 shadow-inner ring-2 ring-blue-500 ring-inset z-10 relative';
+                              textColor = 'text-white font-bold';
+                            } else if (isSwap) {
+                              cellBg = 'bg-yellow-300 shadow-inner animate-pulse-slow ring-2 ring-yellow-400 ring-inset z-10 relative cursor-pointer hover:bg-yellow-400';
+                              textColor = 'text-yellow-900 font-bold';
+                            } else if (isSwapTarget) {
+                              cellBg = 'bg-yellow-50 shadow-inner ring-2 ring-yellow-400 border-dashed ring-inset z-10 relative';
+                              textColor = 'text-yellow-800 font-bold';
+                            } else if (isSelectedTarget) {
+                              cellBg = 'bg-blue-50 shadow-inner ring-2 ring-blue-400 border-dashed ring-inset z-10 relative';
+                              textColor = 'text-blue-800 font-bold';
+                            } else if (slotData?.isBlock) {
+                              cellBg = 'bg-slate-100 cursor-not-allowed pattern-diagonal-lines pattern-slate-200 pattern-bg-white pattern-size-2 pattern-opacity-100';
+                              textColor = 'text-slate-400';
+                            } else if (slotData?.isMovingClass) {
+                              cellBg = 'bg-purple-50 cursor-not-allowed pattern-diagonal-lines pattern-purple-200 pattern-bg-purple-50 pattern-size-2 pattern-opacity-100';
+                              textColor = 'text-purple-600';
+                            }
+
+                            let previewContent = null;
+                            if (isSwapTarget) {
+                              previewContent = (
+                                 <div className="flex flex-col items-center justify-center opacity-100 animate-pulse-slow">
+                                   <span className="text-[11px] font-bold text-yellow-800">{selectedSlot.subject}</span>
+                                   <span className="tracking-tight text-yellow-700">{selectedSlot.classNum}</span>
+                                   <span className="text-[9px] font-bold mt-0.5 bg-yellow-300 text-yellow-900 px-1.5 py-0.5 rounded-sm shadow-sm opacity-90">여기로 이동</span>
+                                 </div>
+                              );
+                            } else if (isSelectedTarget) {
+                              const candTeacher = teachers.find(t => t.id === matchingCandidate.teacherId);
+                              const candSlot = candTeacher.schedule[`${d.name}_${p}`];
+                              previewContent = (
+                                 <div className="flex flex-col items-center justify-center opacity-100 animate-pulse-slow">
+                                   <span className="text-[11px] font-bold text-blue-800">{candSlot.subject}</span>
+                                   <span className="tracking-tight text-blue-700">{candSlot.classNum}</span>
+                                   <span className="text-[9px] font-bold mt-0.5 bg-blue-300 text-blue-900 px-1.5 py-0.5 rounded-sm shadow-sm opacity-90">여기로 이동</span>
+                                 </div>
+                              );
+                            }
+
+                            return (
+                              <td 
+                                key={`${d.name}_${p}`} 
+                                onClick={() => handleCellClick(teacher.id, d.name, p, slotData)}
+                                className={`border border-slate-300 p-0.5 align-middle transition-all duration-200 ${cellBg}`}
+                                style={pIdx === d.periods.length - 1 ? thickBorderRight : {}}
+                                title={isSwap ? '클릭하여 교체하기' : isSelected ? '클릭하여 선택 취소' : slotData?.isMovingClass ? '묶음 이동수업(색칠됨)은 교체 불가' : ''}
+                              >
+                                <div className={`flex flex-col items-center justify-center h-full min-h-[40px] text-[11px] leading-tight ${textColor}`}>
+                                  {slotData ? (
+                                    <>
+                                      <span className={slotData.isBlock ? "line-through opacity-70" : ""}>
+                                        {slotData.isBlock ? '*' : ''}{slotData.subject}
+                                      </span>
+                                      <span className="tracking-tight opacity-90">{slotData.classNum}</span>
+                                    </>
+                                  ) : previewContent ? previewContent : (
+                                    <span className="text-slate-200 group-hover:text-slate-300 transition-colors">+</span>
+                                  )}
+                                </div>
+                              </td>
+                            );
+                          })
+                        ))}
+                        
+                        <td className={`border border-slate-300 text-slate-600 font-semibold ${teacherBgClass}`}>{teacher.hours}</td>
+                        <td className={`border border-slate-300 text-slate-600 font-semibold ${teacherBgClass}`}>{teacher.teacherRight}</td>
+                        <td className={`border border-slate-300 text-slate-500 text-xs ${teacherBgClass}`}>{teacher.homeroom}</td>
+                        <td className={`border border-slate-300 text-slate-400 text-[10px] px-1.5 text-left truncate max-w-[80px] ${teacherBgClass}`}>{teacher.remarks}</td>
+                      </tr>
+                    );
+                  })}
+                  
+                  {displayedTeachers.length === 0 && (
+                    <tr>
+                      <td colSpan={39} className="py-16 text-slate-400 text-center bg-slate-50 border border-slate-300">
+                        <div className="flex flex-col items-center gap-2">
+                          <Filter size={32} className="opacity-20" />
+                          <p className="text-sm font-medium">표시할 데이터가 없습니다.</p>
+                          <p className="text-xs opacity-70">선택된 조건에 맞는 교환 대상자가 존재하지 않습니다.</p>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
