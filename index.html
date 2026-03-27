@@ -42,22 +42,19 @@
     import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
     import { Download, Upload, RefreshCw, Filter, CheckCircle2, AlertCircle, Info, Lock, Unlock, Edit2, Trash2 } from 'https://esm.sh/lucide-react@0.263.1';
     
-    // Firebase 모듈 임포트
-    import { initializeApp } from 'https://esm.sh/firebase@10.5.0/app';
-    import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://esm.sh/firebase@10.5.0/auth';
-    import { getFirestore, doc, setDoc, onSnapshot } from 'https://esm.sh/firebase@10.5.0/firestore';
+    // ✅ 에러의 원인이었던 부분을 구글 공식 주소(gstatic)로 변경 완료!
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.5.0/firebase-app.js';
+    import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.5.0/firebase-auth.js';
+    import { getFirestore, doc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.5.0/firebase-firestore.js';
 
-    // =========================================================================
-    // 🚀 [필수] 여기에 선생님의 Firebase 설정 코드를 붙여넣으세요! 🚀
-    // Firebase 콘솔 -> 프로젝트 설정 -> 내 앱 -> SDK 설정 및 구성에서 확인 가능
-    // =========================================================================
+    // ✅ 선생님의 완벽한 파이어베이스 설정값 입력 완료!
     const firebaseConfig = {
       apiKey: "AIzaSyCugMlS2xrYUfxWBmV2DQGfOYlecA0Jupo",
-  	  authDomain: "school-timetable-954b2.firebaseapp.com",
-  	  projectId: "school-timetable-954b2",
-  	  storageBucket: "school-timetable-954b2.firebasestorage.app",
- 	    messagingSenderId: "1019426393706",
-  	  appId: "1:1019426393706:web:88a94574a64090f32ec413"
+      authDomain: "school-timetable-954b2.firebaseapp.com",
+      projectId: "school-timetable-954b2",
+      storageBucket: "school-timetable-954b2.firebasestorage.app",
+      messagingSenderId: "1019426393706",
+      appId: "1:1019426393706:web:88a94574a64090f32ec413"
     };
 
     let app, auth, db;
@@ -131,7 +128,6 @@
         if (!auth) return;
         const initAuth = async () => {
           try {
-            // 외부 저장소에서는 익명 로그인 사용
             await signInAnonymously(auth);
           } catch (error) {
             console.error("익명 로그인 실패:", error);
