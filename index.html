@@ -42,12 +42,10 @@
     import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
     import { Download, Upload, RefreshCw, Filter, CheckCircle2, AlertCircle, Info, Lock, Unlock, Edit2, Trash2 } from 'https://esm.sh/lucide-react@0.263.1';
     
-    // ✅ 에러의 원인이었던 부분을 구글 공식 주소(gstatic)로 변경 완료!
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.5.0/firebase-app.js';
     import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.5.0/firebase-auth.js';
     import { getFirestore, doc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.5.0/firebase-firestore.js';
 
-    // ✅ 선생님의 완벽한 파이어베이스 설정값 입력 완료!
     const firebaseConfig = {
       apiKey: "AIzaSyCugMlS2xrYUfxWBmV2DQGfOYlecA0Jupo",
       authDomain: "school-timetable-954b2.firebaseapp.com",
@@ -534,11 +532,6 @@
       };
 
       const downloadSample = () => {
-        if (!window.XLSX) {
-           showMessage("엑셀 처리 모듈을 불러오는 중입니다. 잠시 후 다시 시도해주세요.", "error");
-           return;
-        }
-
         const ws_data = [];
         ws_data.push([`${appTitle}`, "", "", "", "", "빈칸X", "초기화", "교환하고자 하는 수업을 클릭후 버튼을 눌러주세요."]); 
         ws_data.push([]); 
@@ -727,8 +720,7 @@
                   <>
                     <button 
                       onClick={downloadSample}
-                      disabled={!isXlsxLoaded}
-                      className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 disabled:opacity-50 rounded-lg text-sm font-medium transition-all focus:ring-2 focus:ring-slate-500 whitespace-nowrap"
+                      className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg text-sm font-medium transition-all focus:ring-2 focus:ring-slate-500 whitespace-nowrap"
                     >
                       <Download size={16} />
                       양식 다운로드
@@ -743,8 +735,7 @@
                     />
                     <button 
                       onClick={() => fileInputRef.current?.click()}
-                      disabled={!isXlsxLoaded}
-                      className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 rounded-lg text-sm font-medium transition-all focus:ring-2 focus:ring-emerald-400 whitespace-nowrap shadow-md shadow-emerald-900/20"
+                      className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-medium transition-all focus:ring-2 focus:ring-emerald-400 whitespace-nowrap shadow-md shadow-emerald-900/20"
                       title="학교 양식을 그대로 올려주세요."
                     >
                       <Upload size={16} />
