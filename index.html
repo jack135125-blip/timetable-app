@@ -878,20 +878,22 @@
 
                             let previewContent = null;
                             if (isSwapTarget) {
-                              previewContent = (
-                                 <div className="flex flex-col items-center justify-center opacity-100 animate-pulse-slow">
-                                   <span className="text-[11px] font-bold text-yellow-800">{selectedSlot.subject}</span>
-                                   <span className="tracking-tight text-yellow-700">{selectedSlot.classNum}</span>
-                                   <span className="text-[9px] font-bold mt-0.5 bg-yellow-300 text-yellow-900 px-1.5 py-0.5 rounded-sm shadow-sm opacity-90">여기로 이동</span>
-                                 </div>
-                              );
-                            } else if (isSelectedTarget) {
+                              // ✅ 노란색 미리보기(상대방 교사의 빈칸): 상대방의 과목이 이동해 옴
                               const candTeacher = teachers.find(t => t.id === hoveredCandidate.teacherId);
                               const candSlot = candTeacher.schedule[`${hoveredCandidate.day}_${hoveredCandidate.period}`];
                               previewContent = (
                                  <div className="flex flex-col items-center justify-center opacity-100 animate-pulse-slow">
-                                   <span className="text-[11px] font-bold text-blue-800">{candSlot.subject}</span>
-                                   <span className="tracking-tight text-blue-700">{candSlot.classNum}</span>
+                                   <span className="text-[11px] font-bold text-yellow-800">{candSlot.subject}</span>
+                                   <span className="tracking-tight text-yellow-700">{candSlot.classNum}</span>
+                                   <span className="text-[9px] font-bold mt-0.5 bg-yellow-300 text-yellow-900 px-1.5 py-0.5 rounded-sm shadow-sm opacity-90">여기로 이동</span>
+                                 </div>
+                              );
+                            } else if (isSelectedTarget) {
+                              // ✅ 파란색 미리보기(내 시간표의 빈칸): 내 과목이 이동해 옴
+                              previewContent = (
+                                 <div className="flex flex-col items-center justify-center opacity-100 animate-pulse-slow">
+                                   <span className="text-[11px] font-bold text-blue-800">{selectedSlot.subject}</span>
+                                   <span className="tracking-tight text-blue-700">{selectedSlot.classNum}</span>
                                    <span className="text-[9px] font-bold mt-0.5 bg-blue-300 text-blue-900 px-1.5 py-0.5 rounded-sm shadow-sm opacity-90">여기로 이동</span>
                                  </div>
                               );
